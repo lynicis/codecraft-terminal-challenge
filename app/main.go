@@ -8,6 +8,18 @@ import (
 	"strings"
 )
 
+type handleCmd func(commandParts []string)
+
+var builtins map[string]handleCmd
+
+func init() {
+	builtins = map[string]handleCmd{
+		"exit": handleExitCmd,
+		"echo": handleEchoCmd,
+		"type": handleTypeCmd,
+	}
+}
+
 func main() {
 	for {
 		fmt.Fprint(os.Stdout, "$ ")
@@ -18,16 +30,43 @@ func main() {
 		}
 
 		command = command[:len(command)-1]
-		if strings.Contains(command, "exit") {
-			exitCode, _ := strconv.Atoi(command[4:])
-			os.Exit(exitCode)
+		parts := strings.Fields(command)
+		if len(parts) == 0 {
+			continue
 		}
 
-		if strings.Contains(command, "echo") {
-			fmt.Println(strings.TrimLeft(command[4:], " "))
+		cmdName := parts[0]
+		if execute, ok := builtins[cmdName]; ok {
+			execute(parts)
 			continue
 		}
 
 		fmt.Println(command + ": command not found")
+	}
+}
+
+func handleExitCmd(commandParts []string) {
+	exitCode := 0
+	if len(commandParts) > 1 {
+		exitCode, _ = strconv.Atoi(commandParts[1])
+	}
+	os.Exit(exitCode)
+}
+
+func handleEchoCmd(commandParts []string) {
+	if len(commandParts) > 1 {
+		fmt.Println(strings.Join(commandParts[1:], " "))
+	}
+}
+
+func handleTypeCmd(commandParts []string) {
+	if len(commandParts) < 2 {
+		return
+	}
+	cmdName := commandParts[1]
+	if _, ok := builtins[cmdName]; ok {
+		fmt.Println(cmdName + " is a shell builtin")
+	} else {
+		fmt.Println(cmdName + ": not found")
 	}
 }
