@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -73,13 +72,12 @@ func handleTypeCmd(commandParts []string) {
 	}
 
 	envPath := os.Getenv("PATH")
-	directories := strings.SplitAfter(envPath, ":")
+	directories := strings.Split(envPath, ":")
 
 	for _, dir := range directories {
-		fullPath := filepath.Join(dir, cmdName)
-		stat, err := os.Stat(fullPath)
+		stat, err := os.Stat(dir)
 		if err == nil && stat.Mode()&0111 != 0 {
-			fmt.Println(fmt.Printf("%s is %s", cmdName, fullPath))
+			fmt.Println(fmt.Printf("%s is %s", cmdName, dir))
 			return
 		}
 	}
