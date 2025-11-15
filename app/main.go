@@ -16,15 +16,17 @@ var commands = map[string]bool{
 }
 
 func main() {
-	fmt.Fprint(os.Stdout, "$ ")
-	command, err := bufio.NewReader(os.Stdin).ReadString('\n')
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error reading input:", err)
-		os.Exit(1)
-	}
+	for {
+		fmt.Fprint(os.Stdout, "$ ")
+		command, err := bufio.NewReader(os.Stdin).ReadString('\n')
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error reading input:", err)
+			os.Exit(1)
+		}
 
-	command = command[:len(command)-1]
-	if ok := commands[command]; !ok {
-		fmt.Printf("%s: command not found", command)
+		command = command[:len(command)-1]
+		if ok := commands[command]; !ok {
+			fmt.Printf("%s: command not found", command)
+		}
 	}
 }
