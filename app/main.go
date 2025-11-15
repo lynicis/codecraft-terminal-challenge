@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -41,7 +42,7 @@ func main() {
 			continue
 		}
 
-		fmt.Println(command + ": command not found")
+		fmt.Println(fmt.Printf("%s: command not found", command))
 	}
 }
 
@@ -50,6 +51,7 @@ func handleExitCmd(commandParts []string) {
 	if len(commandParts) > 1 {
 		exitCode, _ = strconv.Atoi(commandParts[1])
 	}
+
 	os.Exit(exitCode)
 }
 
@@ -63,10 +65,38 @@ func handleTypeCmd(commandParts []string) {
 	if len(commandParts) < 2 {
 		return
 	}
+
 	cmdName := commandParts[1]
 	if _, ok := builtins[cmdName]; ok {
-		fmt.Println(cmdName + " is a shell builtin")
-	} else {
-		fmt.Println(cmdName + ": not found")
+		fmt.Println(fmt.Printf("%s is a shell builtin", cmdName))
+		return
 	}
+
+	paths := os.Getenv("PATH")
+	for _, path := range strings.Split(paths, ":") {
+		file := filepath.Join(path, cmdName)
+		if _, err := os.Stat(file); err == nil {
+			fmt.Println(fmt.Printf("%s is %s", cmdName, file))
+			return
+		}
+	}
+
+	/* var foundPath string
+	filepath.Walk("/", func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		fileName := filepath.Base(path)
+		if !info.IsDir() && fileName == cmdName && info.Mode()&0111 != 0 {
+			foundPath = path
+			return io.EOF
+		}
+
+		return nil
+	})
+
+	if foundPath != "" {
+		fmt.Println(fmt.Printf("%s is %s", cmdName, foundPath))
+	} */
 }
