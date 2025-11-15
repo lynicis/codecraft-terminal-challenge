@@ -26,7 +26,7 @@ func main() {
 
 		command = command[:len(command)-1]
 		if ok := commands[command]; !ok {
-			fmt.Printf("%s: command not found", command)
+			fmt.Println(command + ": command not found")
 		}
 	}
 }
