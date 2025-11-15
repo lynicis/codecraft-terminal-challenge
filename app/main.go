@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -76,7 +75,8 @@ func handleTypeCmd(commandParts []string) {
 	directories := strings.Split(pathVar, ":")
 
 	for _, dir := range directories {
-		fullPath := filepath.Join(dir, cmdName)
+		//fullPath := filepath.Join(dir, cmdName)
+		fullPath := dir + "/" + cmdName
 		stat, err := os.Stat(fullPath)
 		if err == nil {
 			isExecutable := !stat.IsDir() && (stat.Mode()&0111 != 0)
