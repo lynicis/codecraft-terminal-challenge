@@ -24,7 +24,7 @@ func main() {
 		}
 
 		if strings.Contains(command, "echo") {
-			fmt.Println(command[4:])
+			fmt.Println(command[3:])
 			continue
 		}
 
