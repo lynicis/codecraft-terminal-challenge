@@ -81,28 +81,9 @@ func handleTypeCmd(commandParts []string) {
 		if err == nil {
 			isExecutable := !stat.IsDir() && (stat.Mode()&0111 != 0)
 			if isExecutable {
-				fmt.Println(fmt.Printf("%v is %v", cmdName, fullPath))
+				fmt.Println(fmt.Printf("%s is %s", cmdName, fullPath))
 				return
 			}
 		}
 	}
-
-	/* var foundPath string
-	filepath.Walk("/", func(path string, info fs.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-
-		fileName := filepath.Base(path)
-		if !info.IsDir() && fileName == cmdName && info.Mode()&0111 != 0 {
-			foundPath = path
-			return io.EOF
-		}
-
-		return nil
-	})
-
-	if foundPath != "" {
-		fmt.Println(fmt.Printf("%s is %s", cmdName, foundPath))
-	} */
 }
