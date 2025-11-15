@@ -4,16 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 )
-
-// Ensures gofmt doesn't remove the "fmt" and "os" imports in stage 1 (feel free to remove this!)
-var _ = fmt.Fprint
-var _ = os.Stdout
-
-var commands = map[string]bool{
-	"cd":   true,
-	"echo": true,
-}
 
 func main() {
 	for {
@@ -25,8 +18,11 @@ func main() {
 		}
 
 		command = command[:len(command)-1]
-		if ok := commands[command]; !ok {
-			fmt.Println(command + ": command not found")
+		if strings.Contains(command, "exit") {
+			exitCode, _ := strconv.Atoi(command[4:])
+			os.Exit(exitCode)
 		}
+
+		fmt.Println(command + ": command not found")
 	}
 }
