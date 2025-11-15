@@ -67,6 +67,7 @@ func handleTypeCmd(commandParts []string) {
 	}
 
 	cmdName := commandParts[1]
+	fmt.Println(cmdName + ": aga")
 	if _, ok := builtins[cmdName]; ok {
 		fmt.Println(fmt.Printf("%s is a shell builtin", cmdName))
 		return
