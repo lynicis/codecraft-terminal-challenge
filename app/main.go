@@ -23,6 +23,11 @@ func main() {
 			os.Exit(exitCode)
 		}
 
+		if strings.Contains(command, "echo") {
+			fmt.Println(command[4:])
+			continue
+		}
+
 		fmt.Println(command + ": command not found")
 	}
 }
