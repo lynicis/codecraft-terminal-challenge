@@ -24,7 +24,7 @@ func main() {
 		}
 
 		if strings.Contains(command, "echo") {
-			fmt.Println(command[3:])
+			fmt.Println(strings.TrimLeft(command[4:], " "))
 			continue
 		}
 
