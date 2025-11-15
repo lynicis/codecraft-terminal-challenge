@@ -83,4 +83,6 @@ func handleTypeCmd(commandParts []string) {
 			return
 		}
 	}
+
+	fmt.Println(fmt.Printf("%s: command not found", cmdName))
 }
