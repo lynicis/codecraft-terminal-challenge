@@ -73,7 +73,7 @@ func handleTypeCmd(commandParts []string) {
 	}
 
 	envPath := os.Getenv("PATH")
-	directories := strings.Fields(envPath)
+	directories := strings.SplitAfter(envPath, ":")
 
 	for _, dir := range directories {
 		fullPath := filepath.Join(dir, cmdName)
