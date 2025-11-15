@@ -72,12 +72,18 @@ func handleTypeCmd(commandParts []string) {
 		return
 	}
 
-	paths := os.Getenv("PATH")
-	for _, path := range strings.Split(paths, ":") {
-		file := filepath.Join(path, cmdName)
-		if _, err := os.Stat(file); err == nil {
-			fmt.Println(fmt.Printf("%s is %s", cmdName, file))
-			return
+	pathVar := os.Getenv("PATH")
+	directories := strings.Split(pathVar, ":")
+
+	for _, dir := range directories {
+		fullPath := filepath.Join(dir, cmdName)
+		stat, err := os.Stat(fullPath)
+		if err == nil {
+			isExecutable := !stat.IsDir() && (stat.Mode()&0111 != 0)
+			if isExecutable {
+				fmt.Printf("%v is %v", cmdName, fullPath)
+				return
+			}
 		}
 	}
 
