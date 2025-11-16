@@ -100,12 +100,19 @@ func handleTypeCmd(commandParts []string) {
 }
 
 func handlePwdCmd(commandParts []string) {
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+
 	fmt.Printf("%s\n", cwd)
 }
 
 func handleCdCmd(commandParts []string) {
 	targetPath := commandParts[1]
+	if targetPath == "~" {
+		targetPath = os.Getenv("HOME")
+	}
 
 	if err := os.Chdir(targetPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
