@@ -43,20 +43,20 @@ func main() {
 		}
 
 		command = command[:len(command)-1]
-		parts := parseCommand(command)
-		if len(parts) == 0 {
+		parsed := parseCommand(command)
+		if len(parsed.Parts) == 0 {
 			continue
 		}
 
-		cmdName := parts[0]
+		cmdName := parsed.Parts[0]
 		if execute, ok := builtins[cmdName]; ok {
-			execute(parts)
+			applyRedirectionsToBuiltin(execute, parsed.Parts, parsed.Redirections)
 			continue
 		}
 
 		_, ok := findProgramInEnv(cmdName)
 		if ok {
-			runExecutable(cmdName, parts[1:])
+			runExecutable(cmdName, parsed.Parts[1:], parsed.Redirections)
 			continue
 		}
 
@@ -127,11 +127,137 @@ func handleCdCmd(commandParts []string) {
 	}
 }
 
-func runExecutable(cmdName string, args []string) {
+func applyRedirectionsToBuiltin(execute handleCmd, commandParts []string, redirections []Redirection) {
+	if len(redirections) == 0 {
+		execute(commandParts)
+		return
+	}
+
+	originalStdout := os.Stdout
+	originalStderr := os.Stderr
+	originalStdin := os.Stdin
+
+	var stdoutFile, stderrFile, stdinFile *os.File
+	var err error
+
+	for _, redir := range redirections {
+		switch redir.Type {
+		case ">", "1>":
+			stdoutFile, err = os.Create(redir.Filename)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error creating file %s: %v\n", redir.Filename, err)
+				return
+			}
+			os.Stdout = stdoutFile
+		case ">>", "1>>":
+			stdoutFile, err = os.OpenFile(redir.Filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error opening file %s: %v\n", redir.Filename, err)
+				return
+			}
+			os.Stdout = stdoutFile
+		case "<":
+			stdinFile, err = os.Open(redir.Filename)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error opening file %s: %v\n", redir.Filename, err)
+				return
+			}
+			os.Stdin = stdinFile
+		case "2>":
+			stderrFile, err = os.Create(redir.Filename)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error creating file %s: %v\n", redir.Filename, err)
+				return
+			}
+			os.Stderr = stderrFile
+		case "2>>":
+			stderrFile, err = os.OpenFile(redir.Filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error opening file %s: %v\n", redir.Filename, err)
+				return
+			}
+			os.Stderr = stderrFile
+		case "&>", ">&":
+			stdoutFile, err = os.Create(redir.Filename)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error creating file %s: %v\n", redir.Filename, err)
+				return
+			}
+			os.Stdout = stdoutFile
+			os.Stderr = stdoutFile
+		}
+	}
+
+	execute(commandParts)
+
+	if stdoutFile != nil {
+		stdoutFile.Close()
+		os.Stdout = originalStdout
+	}
+	if stderrFile != nil {
+		stderrFile.Close()
+		os.Stderr = originalStderr
+	}
+	if stdinFile != nil {
+		stdinFile.Close()
+		os.Stdin = originalStdin
+	}
+}
+
+func runExecutable(cmdName string, args []string, redirections []Redirection) {
 	executable := exec.Command(cmdName, args...)
 	executable.Stdin = os.Stdin
 	executable.Stdout = os.Stdout
 	executable.Stderr = os.Stderr
+
+	for _, redir := range redirections {
+		switch redir.Type {
+		case ">", "1>":
+			file, err := os.Create(redir.Filename)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error creating file %s: %v\n", redir.Filename, err)
+				return
+			}
+			executable.Stdout = file
+		case ">>", "1>>":
+			file, err := os.OpenFile(redir.Filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error opening file %s: %v\n", redir.Filename, err)
+				return
+			}
+			executable.Stdout = file
+		case "<":
+			file, err := os.Open(redir.Filename)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error opening file %s: %v\n", redir.Filename, err)
+				return
+			}
+			executable.Stdin = file
+		case "2>":
+			file, err := os.Create(redir.Filename)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error creating file %s: %v\n", redir.Filename, err)
+				return
+			}
+			executable.Stderr = file
+		case "2>>":
+			file, err := os.OpenFile(redir.Filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error opening file %s: %v\n", redir.Filename, err)
+				return
+			}
+			executable.Stderr = file
+		case "&>", ">&":
+			file, err := os.Create(redir.Filename)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error creating file %s: %v\n", redir.Filename, err)
+				return
+			}
+			executable.Stdout = file
+			executable.Stderr = file
+		}
+	}
+
 	executable.Run()
 }
 
@@ -144,12 +270,13 @@ func getPathDirs() []string {
 	return pathDirs
 }
 
-func parseCommand(command string) []string {
+func parseCommand(command string) ParsedCommand {
 	state := &parserState{
-		parts:   make([]string, 0, 8),
-		runes:   []rune(command),
-		pos:     0,
-		inQuote: false,
+		parts:        make([]string, 0, 8),
+		redirections: make([]Redirection, 0, 2),
+		runes:        []rune(command),
+		pos:          0,
+		inQuote:      false,
 	}
 	state.current.Grow(16)
 
@@ -165,7 +292,10 @@ func parseCommand(command string) []string {
 
 	state.finishCurrentPart()
 
-	return state.parts
+	return ParsedCommand{
+		Parts:        state.parts,
+		Redirections: state.redirections,
+	}
 }
 
 func findProgramInEnv(cmdName string) (string, bool) {
