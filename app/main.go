@@ -43,7 +43,7 @@ func main() {
 		}
 
 		command = command[:len(command)-1]
-		parts := strings.Fields(command)
+		parts := parseCommand(command)
 		if len(parts) == 0 {
 			continue
 		}
@@ -75,7 +75,10 @@ func handleExitCmd(commandParts []string) {
 
 func handleEchoCmd(commandParts []string) {
 	if len(commandParts) > 1 {
-		fmt.Println(strings.Join(commandParts[1:], " "))
+		args := commandParts[1:]
+		fmt.Println(strings.Join(args, " "))
+	} else {
+		fmt.Println()
 	}
 }
 
@@ -136,6 +139,44 @@ func getPathDirs() []string {
 	})
 
 	return pathDirs
+}
+
+func parseCommand(command string) []string {
+	parts := make([]string, 0, 8)
+	var current strings.Builder
+	current.Grow(16)
+	var inQuote bool
+	var quoteChar rune
+
+	for _, char := range command {
+		if !inQuote {
+			switch char {
+			case '\'', '"', '`':
+				inQuote = true
+				quoteChar = char
+			case ' ', '\t':
+				if current.Len() > 0 {
+					parts = append(parts, current.String())
+					current.Reset()
+					current.Grow(16)
+				}
+			default:
+				current.WriteRune(char)
+			}
+		} else {
+			if char == quoteChar {
+				inQuote = false
+			} else {
+				current.WriteRune(char)
+			}
+		}
+	}
+
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+
+	return parts
 }
 
 func findProgramInEnv(cmdName string) (string, bool) {
