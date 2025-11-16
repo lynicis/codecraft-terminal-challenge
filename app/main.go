@@ -2,11 +2,11 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,17 +21,13 @@ var (
 	pathDirsOnce sync.Once
 )
 
-var (
-	execCache   = make(map[string]string)
-	execCacheMu sync.RWMutex
-)
-
 func init() {
 	builtins = map[string]handleCmd{
 		"exit": handleExitCmd,
 		"echo": handleEchoCmd,
 		"type": handleTypeCmd,
 		"pwd":  handlePwdCmd,
+		"cd":   handleCdCmd,
 	}
 }
 
@@ -104,9 +100,18 @@ func handleTypeCmd(commandParts []string) {
 }
 
 func handlePwdCmd(commandParts []string) {
-	_, currentFile, _, _ := runtime.Caller(0)
-	cwd := filepath.Join(filepath.Dir(currentFile), "../")
+	cwd, _ := os.Getwd()
 	fmt.Printf("%s\n", cwd)
+}
+
+func handleCdCmd(commandParts []string) {
+	targetPath := commandParts[1]
+
+	if err := os.Chdir(targetPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			fmt.Printf("cd: %s: No such file or directory\n", targetPath)
+		}
+	}
 }
 
 func runExecutable(cmdName string, args []string) {
@@ -127,29 +132,12 @@ func getPathDirs() []string {
 }
 
 func findProgramInEnv(cmdName string) (string, bool) {
-	execCacheMu.RLock()
-	if abs, ok := execCache[cmdName]; ok {
-		execCacheMu.RUnlock()
-		if stat, err := os.Stat(abs); err == nil && stat.Mode()&0111 != 0 {
-			return abs, true
-		}
-
-		execCacheMu.Lock()
-		delete(execCache, cmdName)
-		execCacheMu.Unlock()
-	} else {
-		execCacheMu.RUnlock()
-	}
-
 	directories := getPathDirs()
 
 	for _, dir := range directories {
 		abs := filepath.Join(filepath.Clean(dir), cmdName)
 		stat, err := os.Stat(abs)
 		if err == nil && stat.Mode()&0111 != 0 {
-			execCacheMu.Lock()
-			execCache[cmdName] = abs
-			execCacheMu.Unlock()
 			return abs, true
 		}
 	}
