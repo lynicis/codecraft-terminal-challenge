@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"golang.org/x/term"
 )
 
 type handleCmd func(commandParts []string)
@@ -32,36 +34,47 @@ func init() {
 }
 
 func main() {
-	reader := bufio.NewReader(os.Stdin)
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		reader := bufio.NewReader(os.Stdin)
+		for {
+			command, err := reader.ReadString('\n')
+			if err != nil {
+				break
+			}
+			command = strings.TrimRight(command, "\n\r")
+			executeCommand(command)
+		}
+		return
+	}
 
 	for {
-		fmt.Fprint(os.Stdout, "$ ")
-		command, err := reader.ReadString('\n')
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error reading input:", err)
-			os.Exit(1)
-		}
-
-		command = command[:len(command)-1]
-		parsed := parseCommand(command)
-		if len(parsed.Parts) == 0 {
+		command := readLineWithCompletion()
+		if command == "" {
 			continue
 		}
-
-		cmdName := parsed.Parts[0]
-		if execute, ok := builtins[cmdName]; ok {
-			applyRedirectionsToBuiltin(execute, parsed.Parts, parsed.Redirections)
-			continue
-		}
-
-		_, ok := findProgramInEnv(cmdName)
-		if ok {
-			runExecutable(cmdName, parsed.Parts[1:], parsed.Redirections)
-			continue
-		}
-
-		fmt.Printf("%s: command not found\n", cmdName)
+		executeCommand(command)
 	}
+}
+
+func executeCommand(command string) {
+	parsed := parseCommand(command)
+	if len(parsed.Parts) == 0 {
+		return
+	}
+
+	cmdName := parsed.Parts[0]
+	if execute, ok := builtins[cmdName]; ok {
+		applyRedirectionsToBuiltin(execute, parsed.Parts, parsed.Redirections)
+		return
+	}
+
+	_, ok := findProgramInEnv(cmdName)
+	if ok {
+		runExecutable(cmdName, parsed.Parts[1:], parsed.Redirections)
+		return
+	}
+
+	fmt.Printf("%s: command not found\n", cmdName)
 }
 
 func handleExitCmd(commandParts []string) {
@@ -204,6 +217,52 @@ func applyRedirectionsToBuiltin(execute handleCmd, commandParts []string, redire
 	}
 }
 
+func applyRedirection(redir Redirection, cmd *exec.Cmd) error {
+	var file *os.File
+	var err error
+
+	switch redir.Type {
+	case ">", "1>":
+		file, err = os.Create(redir.Filename)
+		if err != nil {
+			return fmt.Errorf("error creating file %s: %v", redir.Filename, err)
+		}
+		cmd.Stdout = file
+	case ">>", "1>>":
+		file, err = os.OpenFile(redir.Filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return fmt.Errorf("error opening file %s: %v", redir.Filename, err)
+		}
+		cmd.Stdout = file
+	case "<":
+		file, err = os.Open(redir.Filename)
+		if err != nil {
+			return fmt.Errorf("error opening file %s: %v", redir.Filename, err)
+		}
+		cmd.Stdin = file
+	case "2>":
+		file, err = os.Create(redir.Filename)
+		if err != nil {
+			return fmt.Errorf("error creating file %s: %v", redir.Filename, err)
+		}
+		cmd.Stderr = file
+	case "2>>":
+		file, err = os.OpenFile(redir.Filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return fmt.Errorf("error opening file %s: %v", redir.Filename, err)
+		}
+		cmd.Stderr = file
+	case "&>", ">&":
+		file, err = os.Create(redir.Filename)
+		if err != nil {
+			return fmt.Errorf("error creating file %s: %v", redir.Filename, err)
+		}
+		cmd.Stdout = file
+		cmd.Stderr = file
+	}
+	return nil
+}
+
 func runExecutable(cmdName string, args []string, redirections []Redirection) {
 	executable := exec.Command(cmdName, args...)
 	executable.Stdin = os.Stdin
@@ -211,50 +270,9 @@ func runExecutable(cmdName string, args []string, redirections []Redirection) {
 	executable.Stderr = os.Stderr
 
 	for _, redir := range redirections {
-		switch redir.Type {
-		case ">", "1>":
-			file, err := os.Create(redir.Filename)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error creating file %s: %v\n", redir.Filename, err)
-				return
-			}
-			executable.Stdout = file
-		case ">>", "1>>":
-			file, err := os.OpenFile(redir.Filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error opening file %s: %v\n", redir.Filename, err)
-				return
-			}
-			executable.Stdout = file
-		case "<":
-			file, err := os.Open(redir.Filename)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error opening file %s: %v\n", redir.Filename, err)
-				return
-			}
-			executable.Stdin = file
-		case "2>":
-			file, err := os.Create(redir.Filename)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error creating file %s: %v\n", redir.Filename, err)
-				return
-			}
-			executable.Stderr = file
-		case "2>>":
-			file, err := os.OpenFile(redir.Filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error opening file %s: %v\n", redir.Filename, err)
-				return
-			}
-			executable.Stderr = file
-		case "&>", ">&":
-			file, err := os.Create(redir.Filename)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error creating file %s: %v\n", redir.Filename, err)
-				return
-			}
-			executable.Stdout = file
-			executable.Stderr = file
+		if err := applyRedirection(redir, executable); err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			return
 		}
 	}
 
@@ -310,4 +328,254 @@ func findProgramInEnv(cmdName string) (string, bool) {
 	}
 
 	return "", false
+}
+
+func readLineWithCompletion() string {
+	fmt.Fprint(os.Stdout, "$ ")
+
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		reader := bufio.NewReader(os.Stdin)
+		line, _ := reader.ReadString('\n')
+		return strings.TrimRight(line, "\n\r")
+	}
+	defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+	var line []rune
+	var cursorPos int
+	reader := bufio.NewReader(os.Stdin)
+
+	for {
+		r, _, err := reader.ReadRune()
+		if err != nil {
+			break
+		}
+
+		switch r {
+		case '\r', '\n':
+			fmt.Fprint(os.Stdout, "\r\n")
+			return string(line)
+		case '\t':
+			handleTabCompletion(&line, &cursorPos)
+		case 127, 8:
+			if cursorPos > 0 {
+				line = append(line[:cursorPos-1], line[cursorPos:]...)
+				cursorPos--
+				redrawLine(string(line), cursorPos)
+			}
+		case 3:
+			fmt.Fprint(os.Stdout, "^C\r\n")
+			line = nil
+			cursorPos = 0
+			fmt.Fprint(os.Stdout, "$ ")
+		case 27:
+			handleEscapeSequence(reader, &line, &cursorPos)
+		default:
+			line = append(line, 0)
+			copy(line[cursorPos+1:], line[cursorPos:])
+			line[cursorPos] = r
+			cursorPos++
+			redrawLine(string(line), cursorPos)
+		}
+	}
+
+	return string(line)
+}
+
+func handleTabCompletion(line *[]rune, cursorPos *int) {
+	lineStr := string(*line)
+	completions := getCompletions(lineStr, *cursorPos)
+	if len(completions) == 1 {
+		completion := completions[0]
+		prefixRunes := (*line)[:*cursorPos]
+		suffixRunes := (*line)[*cursorPos:]
+		wordStartRune := findWordStartRune(prefixRunes)
+		wordRunes := prefixRunes[wordStartRune:]
+
+		isCommandCompletion := wordStartRune == 0
+		if isCommandCompletion {
+			completion = completion + " "
+		}
+
+		completionRunes := []rune(completion)
+		wordRunesLen := len(wordRunes)
+
+		if len(completionRunes) > wordRunesLen {
+			newLine := make([]rune, 0, len(prefixRunes)-wordRunesLen+len(completionRunes)+len(suffixRunes))
+			newLine = append(newLine, prefixRunes[:wordStartRune]...)
+			newLine = append(newLine, completionRunes...)
+			newLine = append(newLine, suffixRunes...)
+			*line = newLine
+			*cursorPos = wordStartRune + len(completionRunes)
+			redrawLine(string(*line), *cursorPos)
+		}
+	} else if len(completions) > 1 {
+		fmt.Fprint(os.Stdout, "\r\n")
+		for _, comp := range completions {
+			fmt.Fprintf(os.Stdout, "%s  ", comp)
+		}
+		fmt.Fprint(os.Stdout, "\r\n")
+		redrawLine(string(*line), *cursorPos)
+	}
+}
+
+func handleEscapeSequence(reader *bufio.Reader, line *[]rune, cursorPos *int) {
+	next, _ := reader.Peek(2)
+	if len(next) >= 2 && next[0] == '[' {
+		reader.Discard(2)
+		if next[1] == 'C' && *cursorPos < len(*line) {
+			*cursorPos++
+			redrawLine(string(*line), *cursorPos)
+		} else if next[1] == 'D' && *cursorPos > 0 {
+			*cursorPos--
+			redrawLine(string(*line), *cursorPos)
+		}
+	}
+}
+
+func redrawLine(line string, cursorPos int) {
+	fmt.Fprint(os.Stdout, "\r\x1b[K$ "+line)
+	runes := []rune(line)
+	if cursorPos < len(runes) {
+		charsAfterCursor := len(runes) - cursorPos
+		if charsAfterCursor > 0 {
+			fmt.Fprintf(os.Stdout, "\x1b[%dD", charsAfterCursor)
+		}
+	}
+	os.Stdout.Sync()
+}
+
+func findWordStartRune(prefix []rune) int {
+	for i := len(prefix) - 1; i >= 0; i-- {
+		if prefix[i] == ' ' || prefix[i] == '\t' {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+func getCompletions(line string, cursorPos int) []string {
+	runes := []rune(line)
+	if cursorPos > len(runes) {
+		cursorPos = len(runes)
+	}
+	prefix := string(runes[:cursorPos])
+
+	if !strings.Contains(prefix, " ") && !strings.Contains(prefix, "\t") {
+		return getCommandCompletions(prefix)
+	}
+
+	lastSpaceIdx := strings.LastIndexAny(prefix, " \t")
+	if lastSpaceIdx == -1 {
+		return getFileCompletions(prefix)
+	}
+	lastPart := prefix[lastSpaceIdx+1:]
+	return getFileCompletions(lastPart)
+}
+
+func getCommandCompletions(prefix string) []string {
+	var completions []string
+
+	for cmd := range builtins {
+		if strings.HasPrefix(cmd, prefix) {
+			completions = append(completions, cmd)
+		}
+	}
+
+	directories := getPathDirs()
+	seen := make(map[string]bool)
+
+	for _, dir := range directories {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+
+			name := entry.Name()
+			if strings.HasPrefix(name, prefix) && !seen[name] {
+				abs := filepath.Join(dir, name)
+				stat, err := os.Stat(abs)
+				if err == nil && stat.Mode()&0111 != 0 {
+					completions = append(completions, name)
+					seen[name] = true
+				}
+			}
+		}
+	}
+
+	return completions
+}
+
+func getFileCompletions(prefix string) []string {
+	var completions []string
+
+	dir := "."
+	filePrefix := prefix
+
+	if prefix != "" {
+		if strings.HasPrefix(prefix, "~") {
+			home := os.Getenv("HOME")
+			if home != "" {
+				prefix = home + prefix[1:]
+			}
+		}
+
+		if strings.Contains(prefix, "/") {
+			dir = filepath.Dir(prefix)
+			filePrefix = filepath.Base(prefix)
+		} else {
+			dir = "."
+			filePrefix = prefix
+		}
+	}
+
+	if dir == "~" {
+		home := os.Getenv("HOME")
+		if home != "" {
+			dir = home
+		}
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return completions
+	}
+
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, filePrefix) {
+			if entry.IsDir() {
+				completions = append(completions, name+"/")
+			} else {
+				completions = append(completions, name)
+			}
+		}
+	}
+
+	if dir != "." || strings.Contains(prefix, "/") {
+		baseDir := dir
+		if baseDir == "." {
+			baseDir = filepath.Dir(prefix)
+		}
+		if baseDir == "" {
+			baseDir = "."
+		}
+
+		var adjustedCompletions []string
+		for _, comp := range completions {
+			if strings.HasPrefix(comp, "/") {
+				adjustedCompletions = append(adjustedCompletions, comp)
+			} else {
+				adjustedCompletions = append(adjustedCompletions, filepath.Join(baseDir, comp))
+			}
+		}
+		completions = adjustedCompletions
+	}
+
+	return completions
 }
