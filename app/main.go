@@ -6,9 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
-	"unsafe"
 )
 
 type handleCmd func(commandParts []string)
@@ -30,6 +31,7 @@ func init() {
 		"exit": handleExitCmd,
 		"echo": handleEchoCmd,
 		"type": handleTypeCmd,
+		"pwd":  handlePwdCmd,
 	}
 }
 
@@ -69,7 +71,7 @@ func main() {
 func handleExitCmd(commandParts []string) {
 	var exitCode int
 	if len(commandParts) > 1 {
-		exitCode = unsafeAtoi(commandParts[1])
+		exitCode, _ = strconv.Atoi(commandParts[1])
 	}
 
 	os.Exit(exitCode)
@@ -99,6 +101,12 @@ func handleTypeCmd(commandParts []string) {
 	}
 
 	fmt.Printf("%s: not found\n", cmdName)
+}
+
+func handlePwdCmd(commandParts []string) {
+	_, currentFile, _, _ := runtime.Caller(0)
+	cwd := filepath.Join(filepath.Dir(currentFile), "../")
+	fmt.Printf("%s\n", cwd)
 }
 
 func runExecutable(cmdName string, args []string) {
@@ -147,8 +155,4 @@ func findProgramInEnv(cmdName string) (string, bool) {
 	}
 
 	return "", false
-}
-
-func unsafeAtoi(str string) int {
-	return *(*int)(unsafe.Pointer(uintptr(unsafe.Pointer(&str))))
 }
