@@ -60,7 +60,7 @@ func main() {
 			continue
 		}
 
-		fmt.Printf("%s: command not found\n", command)
+		fmt.Printf("%s: command not found\n", cmdName)
 	}
 }
 
@@ -112,9 +112,12 @@ func handlePwdCmd(commandParts []string) {
 }
 
 func handleCdCmd(commandParts []string) {
-	targetPath := commandParts[1]
-	if targetPath == "~" {
-		targetPath = os.Getenv("HOME")
+	var targetPath string
+	if len(commandParts) > 1 {
+		targetPath = commandParts[1]
+		if targetPath == "~" {
+			targetPath = os.Getenv("HOME")
+		}
 	}
 
 	if err := os.Chdir(targetPath); err != nil {
@@ -142,41 +145,27 @@ func getPathDirs() []string {
 }
 
 func parseCommand(command string) []string {
-	parts := make([]string, 0, 8)
-	var current strings.Builder
-	current.Grow(16)
-	var inQuote bool
-	var quoteChar rune
+	state := &parserState{
+		parts:   make([]string, 0, 8),
+		runes:   []rune(command),
+		pos:     0,
+		inQuote: false,
+	}
+	state.current.Grow(16)
 
-	for _, char := range command {
-		if !inQuote {
-			switch char {
-			case '\'', '"', '`':
-				inQuote = true
-				quoteChar = char
-			case ' ', '\t':
-				if current.Len() > 0 {
-					parts = append(parts, current.String())
-					current.Reset()
-					current.Grow(16)
-				}
-			default:
-				current.WriteRune(char)
-			}
+	for state.pos < len(state.runes) {
+		char := state.runes[state.pos]
+
+		if state.inQuote {
+			state.handleQuotedChar(char)
 		} else {
-			if char == quoteChar {
-				inQuote = false
-			} else {
-				current.WriteRune(char)
-			}
+			state.handleUnquotedChar(char)
 		}
 	}
 
-	if current.Len() > 0 {
-		parts = append(parts, current.String())
-	}
+	state.finishCurrentPart()
 
-	return parts
+	return state.parts
 }
 
 func findProgramInEnv(cmdName string) (string, bool) {
