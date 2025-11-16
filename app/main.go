@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -42,6 +43,10 @@ func main() {
 			continue
 		}
 
+		if findExecutable(parts) {
+			continue
+		}
+
 		fmt.Printf("%s: command not found\n", command)
 	}
 }
@@ -66,9 +71,9 @@ func handleTypeCmd(commandParts []string) {
 		return
 	}
 
-	cmdName := commandParts[1]
-	if _, ok := builtins[cmdName]; ok {
-		fmt.Printf("%s is a shell builtin\n", cmdName)
+	arg := commandParts[1]
+	if _, ok := builtins[arg]; ok {
+		fmt.Printf("%s is a shell builtin\n", arg)
 		return
 	}
 
@@ -76,13 +81,40 @@ func handleTypeCmd(commandParts []string) {
 	directories := strings.Split(envPath, ":")
 
 	for _, dir := range directories {
-		abs := filepath.Join(filepath.Clean(dir), cmdName)
+		abs := filepath.Join(filepath.Clean(dir), arg)
 		stat, err := os.Stat(abs)
 		if err == nil && stat.Mode()&0111 != 0 {
-			fmt.Printf("%s is %s\n", cmdName, abs)
+			fmt.Printf("%s is %s\n", arg, abs)
 			return
 		}
 	}
 
-	fmt.Printf("%s: not found\n", cmdName)
+	fmt.Printf("%s: not found\n", arg)
+}
+
+func findExecutable(commandParts []string) bool {
+	cmdName := commandParts[0]
+	envPath := os.Getenv("PATH")
+	directories := strings.Split(envPath, ":")
+
+	for _, dir := range directories {
+		abs := filepath.Join(filepath.Clean(dir), cmdName)
+		stat, err := os.Stat(abs)
+		if err == nil && stat.Mode()&0111 != 0 {
+			var args []string
+			if len(commandParts) > 1 {
+				args = commandParts[1:]
+			}
+
+			executable := exec.Command(cmdName, args...)
+			executable.Stdin = os.Stdin
+			executable.Stdout = os.Stdout
+			executable.Stderr = os.Stderr
+			executable.Run()
+
+			return true
+		}
+	}
+
+	return false
 }
